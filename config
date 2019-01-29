@@ -1,0 +1,26 @@
+ngx_addon_name="ngx_websocket_module"
+WEBSOCKET_MODULES="                                                            \
+                   ngx_websocket_module                                        \
+"
+WEBSOCKET_SRCS="                                                               \
+                   $ngx_addon_dir/ngx_websocket_module.c                       \
+                   $ngx_addon_dir/ngx_http_set_header.c                        \
+                   $ngx_addon_dir/ngx_websocket_recv.c                         \
+                   $ngx_addon_dir/ngx_websocket_send.c                         \
+"
+
+WEBSOCKET_DEPS="                                                               \
+                   #ngx_addon_dir/ngx_http_set_header.h                        \
+                   #ngx_addon_dir/ngx_websocket.h                              \
+                   "
+HTTP_MODULES="$HTTP_MODULES $WEBSOCKET_MODULES"
+
+NGX_ADDON_SRCS="$NGX_ADDON_SRCS $WEBSOCKET_SRCS"
+
+USE_OPENSSL=YES
+
+WEBSOCKET_LIBS=""
+
+NGX_ADDON_DEPS="$NGX_ADDON_DEPS $WEBSOCKET_DEPS"
+
+CORE_LIBS="$CORE_LIBS $WEBSOCKET_LIBS"
