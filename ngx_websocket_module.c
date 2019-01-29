@@ -6,6 +6,8 @@ static ngx_str_t HEADER_WS_KEY = ngx_string("Sec-WebSocket-Key");
 static ngx_str_t HEADER_WS_VERSION = ngx_string("Sec-WebSocket-Version");
 //static ngx_str_t HEADER_WS_EXTENSIONS = ngx_string("Sec-WebSocket-Extensions");
 
+typedef struct ngx_websocket_ctx_s ngx_websocket_ctx_t;
+
 static ngx_keyval_t ngx_websocket_headers[] = {
     { ngx_string("Upgrade"),   ngx_string("websocket") },
     { ngx_string("Sec-WebSocket-Version"),    ngx_string("13") },
@@ -16,16 +18,14 @@ static ngx_keyval_t ngx_websocket_headers[] = {
     { ngx_null_string, ngx_null_string }
 };
 
-enum ExtensionTokens {
-    TOK_PERMESSAGE_DEFLATE = 1838,
-    TOK_SERVER_NO_CONTEXT_TAKEOVER = 2807,
-    TOK_CLIENT_NO_CONTEXT_TAKEOVER = 2783,
-    TOK_SERVER_MAX_WINDOW_BITS = 2372,
-    TOK_CLIENT_MAX_WINDOW_BITS = 2348
+struct ngx_websocket_ctx_s {
+    ngx_websocket_session_t    *ws;
 };
 
 static void *
 ngx_websocket_create_loc_conf(ngx_conf_t *cf);
+static char *
+ngx_websocket_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
 static char *
 ngx_websocket_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static ngx_int_t
@@ -42,7 +42,7 @@ static ngx_http_module_t  ngx_websocket_module_ctx = {
     NULL,                                  /* merge server configuration */
 
     ngx_websocket_create_loc_conf,         /* create location configuration */
-    NULL                                   /* merge location configuration */
+    ngx_websocket_merge_loc_conf           /* merge location configuration */
 };
 
 
@@ -53,6 +53,20 @@ static ngx_command_t  ngx_websocket_commands[] = {
       ngx_websocket_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
+      NULL },
+
+    { ngx_string("websocket_chunk"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_num_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_websocket_loc_conf_t, chunk_size),
+      NULL },
+
+    { ngx_string("websocket_out_queue"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_num_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_websocket_loc_conf_t, out_queue),
       NULL },
 
     ngx_null_command
@@ -82,8 +96,22 @@ ngx_websocket_create_loc_conf(ngx_conf_t *cf)
     if (wlcf == NULL) {
         return NULL;
     }
+    wlcf->chunk_size = NGX_CONF_UNSET;
+    wlcf->out_queue = NGX_CONF_UNSET;
 
     return wlcf;
+}
+
+static char *
+ngx_websocket_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
+{
+    ngx_websocket_loc_conf_t *prev = parent;
+    ngx_websocket_loc_conf_t *conf = child;
+
+    ngx_conf_merge_uint_value(conf->chunk_size, prev->chunk_size, 1024);
+    ngx_conf_merge_uint_value(conf->out_queue, prev->out_queue, 512);
+
+    return NGX_CONF_OK;
 }
 
 static char *
@@ -101,8 +129,8 @@ ngx_websocket_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 static ngx_int_t
 ngx_websocket_send_header(ngx_http_request_t *r)
 {
-    ngx_int_t                           rc;
-    ngx_keyval_t                       *h;
+    ngx_int_t           rc;
+    ngx_keyval_t       *h;
     static ngx_str_t    http_status = ngx_string("101 Switching Protocols");
 
     r->headers_out.status_line = http_status;
@@ -128,6 +156,20 @@ ngx_websocket_send_header(ngx_http_request_t *r)
 static void
 ngx_websocket_cleanup(void *data)
 {
+    ngx_http_request_t         *r;
+    ngx_websocket_session_t    *ws;
+    ngx_websocket_ctx_t        *ctx;
+
+    r = data;
+    ctx = ngx_http_get_module_ctx(r, ngx_websocket_module);
+    if (!ctx) {
+        return;
+    }
+
+    ws = ctx->ws;
+    if (ws && ws->disconnect_handler) {
+        ws->disconnect_handler(ws);
+    }
 }
 
 /*
@@ -139,17 +181,63 @@ ngx_websocket_upgrade(ngx_str_t *key, ngx_str_t *extensions,
 }
 */
 
+static ngx_websocket_session_t *
+ngx_websocket_init_session(ngx_http_request_t *r)
+{
+    ngx_websocket_session_t    *ws;
+    ngx_websocket_ctx_t        *ctx;
+    ngx_pool_t                 *pool;
+    ngx_websocket_loc_conf_t   *wlcf;
+
+    wlcf = ngx_http_get_module_loc_conf(r, ngx_websocket_module);
+    ctx = ngx_http_get_module_ctx(r, ngx_websocket_module);
+    if (ctx) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "websocket: init_session| websocket session has been inited");
+        return NULL;
+    }
+    ctx = ngx_pcalloc(r->connection->pool, sizeof(ngx_websocket_ctx_t));
+    if (!ctx) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "websocket: init_session| pcalloc ctx failed");
+        return NULL;
+    }
+
+    ws = ngx_pcalloc(r->connection->pool,
+        sizeof(ngx_websocket_session_t) + ngx_http_max_module * sizeof(void *));
+    if (!ws) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "websocket: init_session| pcalloc websocket session failed");
+        return NULL;
+    }
+
+    ws->r = r;
+    ctx->ws = ws;
+
+    pool = r->connection->pool;
+    ws->pool = pool;
+    ws->log = r->connection->log;
+    ws->chunk_size = wlcf->chunk_size;
+
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+            "websocket: init_session| init websocket session");
+
+    return ws;
+}
+
 static ngx_int_t
 ngx_websocket_handshark(ngx_http_request_t *r)
 {
-    u_char              sha_digest[SHA_DIGEST_LENGTH] = { 0 };
-    ngx_str_t          *upgrade;
-    ngx_str_t          *ws_version;
-    ngx_str_t          *ws_key;
-    //ngx_str_t        *ws_extensions;
-    ngx_str_t           ws_accept, digest;
-    ngx_int_t           ret;
-    ngx_int_t           v;
+    u_char                     sha_digest[SHA_DIGEST_LENGTH] = { 0 };
+    ngx_str_t                 *upgrade;
+    ngx_str_t                 *ws_version;
+    ngx_str_t                 *ws_key;
+    //ngx_str_t                 *ws_extensions;
+    ngx_str_t                  ws_accept, digest;
+    ngx_int_t                  ret;
+    ngx_int_t                  v;
+    ngx_websocket_loc_conf_t  *wlcf;
+    ngx_websocket_session_t   *ws;
 
     if (!(r->method & (NGX_HTTP_GET|NGX_HTTP_HEAD))) {
         return NGX_DECLINED;
@@ -164,6 +252,19 @@ ngx_websocket_handshark(ngx_http_request_t *r)
 
     if (v != 13 || !upgrade || !ws_key) {
         return NGX_DECLINED;
+    }
+
+    ws = ngx_websocket_init_session(r);
+    if (!ws) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "websocket: handshark| init session failed");
+
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+    wlcf = ngx_http_get_module_loc_conf(r, ngx_websocket_module);
+    if (wlcf->connect_handler) {
+        wlcf->connect_handler(ws);
     }
 
     ngx_memcpy(SHA_INPUT, ws_key->data, ws_key->len);

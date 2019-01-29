@@ -18,11 +18,17 @@ struct ngx_websocket_session_s {
     ngx_websocket_recv_handler_pt          recv_handler;
     ngx_websocket_disconnect_handler_pt    disconnect_handler;
     ngx_pool_t                            *pool;
+    ngx_log_t                             *log;
+    ngx_uint_t                             chunk_size;
     void                                  *ctx[];
 };
 
 struct ngx_websocket_loc_conf_s {
     ngx_websocket_connect_handler_pt    connect_handler;
+    ngx_uint_t                          chunk_size;
+    ngx_uint_t                          out_queue;
+    ngx_chain_t                        *in_free;
+    ngx_chain_t                        *out[];
 };
 
 void ngx_websocket_read_handler(ngx_http_request_t *r);
