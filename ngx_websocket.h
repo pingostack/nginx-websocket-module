@@ -1,3 +1,13 @@
+/*
+ * @Description: 
+ * @Author: pingox
+ * @Copyright: pngox
+ * @Github: https://github.com/pingox
+ * @EMail: cczjp89@gmail.com
+ * @LastEditors: pingox
+ * @Date: 2019-01-29 22:05:26
+ * @LastEditTime: 2019-03-16 18:04:08
+ */
 #ifndef __NGX_WEBSOCKET_H_INCLUDE__
 #define __NGX_WEBSOCKET_H_INCLUDE__
 

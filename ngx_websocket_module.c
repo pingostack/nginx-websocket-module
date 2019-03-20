@@ -1,3 +1,13 @@
+/*
+ * @Description: 
+ * @Author: pingox
+ * @Copyright: pngox
+ * @Github: https://github.com/pingox
+ * @EMail: cczjp89@gmail.com
+ * @LastEditors: pingox
+ * @Date: 2019-01-29 22:05:26
+ * @LastEditTime: 2019-03-16 18:03:55
+ */
 #include "ngx_websocket.h"
 
 static u_char SHA_INPUT[] = "XXXXXXXXXXXXXXXXXXXXXXXX258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -161,6 +171,9 @@ ngx_websocket_cleanup(void *data)
     ngx_websocket_ctx_t        *ctx;
 
     r = data;
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+        "websocket: cleanup| disconnect");
+
     ctx = ngx_http_get_module_ctx(r, ngx_websocket_module);
     if (!ctx) {
         return;

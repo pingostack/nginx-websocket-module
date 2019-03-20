@@ -1,3 +1,14 @@
+/*
+ * @Description: 
+ * @Author: pingox
+ * @Copyright: pngox
+ * @Github: https://github.com/pingox
+ * @EMail: cczjp89@gmail.com
+ * @LastEditors: pingox
+ * @Date: 2019-01-29 22:05:26
+ * @LastEditTime: 2019-03-20 23:45:47
+ */
+
 #include "ngx_websocket.h"
 
 
@@ -40,7 +51,7 @@ void
 ngx_websocket_read_handler(ngx_http_request_t *r)
 {
     int                n;
-    char               buf[1];
+    char               buf[128] = {0};
     ngx_err_t          err;
     ngx_event_t       *rev;
     ngx_connection_t  *c;
@@ -63,11 +74,7 @@ ngx_websocket_read_handler(ngx_http_request_t *r)
 
 #if (NGX_HAVE_KQUEUE)
 
-    if (ngx_event_flags & NGX_USE_KQUEUE_EVENT) {
-
-        if (!rev->pending_eof) {
-            return;
-        }
+    if (ngx_event_flags & NGX_USE_KQUEUE_EVENT && rev->pending_eof) {
 
         rev->eof = 1;
         c->error = 1;
@@ -78,14 +85,13 @@ ngx_websocket_read_handler(ngx_http_request_t *r)
 
 #endif
 
+
 #if (NGX_HAVE_EPOLLRDHUP)
 
-    if ((ngx_event_flags & NGX_USE_EPOLL_EVENT) && ngx_use_epoll_rdhup) {
+    if (((ngx_event_flags & NGX_USE_EPOLL_EVENT) && ngx_use_epoll_rdhup) &&
+        rev->pending_eof)
+    {
         socklen_t  len;
-
-        if (!rev->pending_eof) {
-            return;
-        }
 
         rev->eof = 1;
         c->error = 1;
@@ -109,7 +115,7 @@ ngx_websocket_read_handler(ngx_http_request_t *r)
 
 #endif
 
-    n = recv(c->fd, buf, 1, MSG_PEEK);
+    n = recv(c->fd, buf, sizeof(buf), 0);
 
     if (n == 0) {
         rev->eof = 1;
@@ -138,8 +144,6 @@ ngx_websocket_read_handler(ngx_http_request_t *r)
         }
     }
 
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "recv %d", n);
-
     return;
 
 closed:
@@ -149,7 +153,7 @@ closed:
     }
 
     ngx_log_error(NGX_LOG_INFO, c->log, err,
-                  "websocket: read| client prematurely closed connection");
+                  "client prematurely closed connection");
 
     ngx_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
 }
