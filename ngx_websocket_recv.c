@@ -1,16 +1,11 @@
 /*
- * @Description: 
  * @Author: pingox
  * @Copyright: pngox
  * @Github: https://github.com/pingox
  * @EMail: cczjp89@gmail.com
- * @LastEditors: pingox
- * @Date: 2019-01-29 22:05:26
- * @LastEditTime: 2019-03-20 23:45:47
  */
 
 #include "ngx_websocket.h"
-
 
 static void
 ngx_http_close_request(ngx_http_request_t *r, ngx_int_t rc)
@@ -21,12 +16,10 @@ ngx_http_close_request(ngx_http_request_t *r, ngx_int_t rc)
     c = r->connection;
 
     ngx_log_debug2(NGX_LOG_DEBUG_HTTP, c->log, 0,
-                  "websocket: http_close| http request count:%d blk:%d",
-                   r->count, r->blocked);
+                   "http request count:%d blk:%d", r->count, r->blocked);
 
     if (r->count == 0) {
-        ngx_log_error(NGX_LOG_ALERT, c->log, 0,
-                     "websocket: http_close| http request count is zero");
+        ngx_log_error(NGX_LOG_ALERT, c->log, 0, "http request count is zero");
     }
 
     r->count--;
@@ -47,14 +40,227 @@ ngx_http_close_request(ngx_http_request_t *r, ngx_int_t rc)
 }
 
 
+static ngx_int_t
+ngx_websocket_recv(ngx_http_request_t *r, ngx_err_t *err)
+{
+    ngx_int_t                  n;
+    ngx_connection_t          *c;
+    ngx_websocket_session_t   *ws;
+    ngx_websocket_ctx_t       *ctx;
+    ngx_websocket_frame_t     *f;
+    ngx_websocket_header_t     h;
+    ngx_buf_t                 *b;
+    size_t                     old_size;
+    u_char                    *p, *old_pos;
+    uint64_t                   i;
+    ngx_event_t               *rev;
+    ngx_str_t                  msg;
+    ngx_websocket_loc_conf_t  *wlcf;
+
+    c = r->connection;
+    b = NULL;
+    old_pos = NULL;
+    old_size = 0;
+    rev = c->read;
+    wlcf = ngx_http_get_module_loc_conf(r, ngx_websocket_module);
+
+    ctx = ngx_http_get_module_ctx(r, ngx_websocket_module);
+    if (ctx == NULL) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "websocket: recv| ctx is null");
+        return NGX_ERROR;
+    }
+
+    ws = ctx->ws;
+    f = &ws->in_frame;
+
+    for (;;) {
+
+        if (f->buf == NULL) {
+            f->buf = ngx_create_temp_buf(ws->pool, wlcf->max_length);
+        }
+        b = f->buf;
+
+        if (old_size) {
+            b->pos = b->start;
+            b->last = ngx_movemem(b->pos, old_pos, old_size);
+        } else {
+#if 0
+            n = recv(c->fd, b->last, b->end - b->last, 0);
+            if (n == 0) {
+                rev->eof = 1;
+                c->error = 1;
+                *err = 0;
+
+                return NGX_ERROR;
+
+            } else if (n == -1) {
+                *err = ngx_socket_errno;
+
+                if (*err != NGX_EAGAIN) {
+                    rev->eof = 1;
+                    c->error = 1;
+                    return NGX_ERROR;
+                }
+
+                return NGX_AGAIN;
+            }
+
+            /* aio does not call this handler */
+
+            if ((ngx_event_flags & NGX_USE_LEVEL_EVENT) && rev->active) {
+
+                if (ngx_del_event(rev, NGX_READ_EVENT, 0) != NGX_OK) {
+                    ngx_http_close_request(r, 0);
+                }
+            }
+#else
+            n = c->recv(c, b->last, b->end - b->last);
+
+            if (n == NGX_ERROR || n == 0) {
+                return NGX_ERROR;
+            }
+
+            if (n == NGX_AGAIN) {
+                if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
+                    ngx_http_close_request(r, 0);
+                    return NGX_ERROR;
+                }
+                return NGX_AGAIN;
+            }
+
+#endif
+            b->last += n;
+        }
+
+        old_pos = NULL;
+        old_size = 0;
+
+        if (f->ph == NULL) {
+            f->ph = b->pos;
+            f->phl = NULL;
+        }
+
+        if (f->phl == NULL) {
+            p = f->ph;
+            h.fin = (*p) >> 7;
+            if (h.fin == 0) {
+                f->append = 1;
+            }
+
+            h.opcode = *p & 0x0f;
+            if (f->opcode == 0) {
+                f->opcode = h.opcode;
+            }
+
+            p++;
+            if (b->last - p < 1) {
+                continue;
+            }
+
+            h.mask = (*p) >> 7;
+            h.payload_length = (*p) & 0x7f;
+            p++;
+
+            if (h.payload_length < 126) {
+                f->len = h.payload_length;
+            } else if (h.payload_length == 126) {
+                if (b->last - p < 2) {
+                    continue;
+                }
+                ngx_websocket_rmemcpy(&h.extended_playload_length16, p, 2);
+                p += 2;
+                f->len = h.extended_playload_length16;
+            } else if (h.payload_length == 127) {
+                if (b->last - p < 2) {
+                    continue;
+                }
+                ngx_websocket_rmemcpy(&h.extended_playload_length64, p, 8);
+                p += 8;
+                f->len = h.extended_playload_length64;
+            }
+
+            if (h.mask) {
+                if (b->last - p < 4) {
+                    continue;
+                }
+                ngx_memcpy(h.masking_key, p, 4);
+                //ngx_websocket_rmemcpy(h.masking_key, p, 4);
+                p += 4;
+            }
+            f->phl = p;
+        }
+
+        p = f->phl;
+
+        if (b->last == b->end && (uint64_t) (b->last - p) < f->len) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                "websocket: recv| message is too large.");
+            return NGX_ERROR;
+        }
+
+        if ((uint64_t)(b->last - p) < f->len) {
+            return NGX_AGAIN;
+        }
+
+        for (i = 0; i < f->len; i++) {
+            *p = h.masking_key[i%4] ^ *p;
+            p++;
+        }
+
+        if (f->append) {
+            ngx_movemem(f->ph, f->phl, f->len);
+            f->mlen += f->len;
+            b->last -= f->phl - f->ph;
+            p -= f->phl - f->ph;
+        } else {
+            b->pos = f->phl;
+        }
+
+        if (h.fin == 1) {
+            msg.data = b->pos;
+            msg.len = p - b->pos;
+            if (f->opcode ==  NGX_WEBSOCKET_OPCODE_CLOSE) {
+                ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                    "websocket: recv| get close message.");
+                return NGX_ERROR;
+            } else if (f->opcode ==  NGX_WEBSOCKET_OPCODE_PING) {
+                ngx_websocket_send_message(ws, NULL, NGX_WEBSOCKET_OPCODE_PONG);
+            } else if (ws->recv_handler) {
+                ws->recv_handler(ws, &msg, f->opcode);
+            }
+
+            if (b->last == p) {
+                b->last = b->pos = b->start;
+            } else {
+                old_pos = p;
+                old_size = b->last - p;
+            }
+            f->ph = NULL;
+            f->phl = NULL;
+            f->opcode = 0;
+            f->append = 0;
+
+            return NGX_OK;
+        }
+
+        // if fin == 0
+        if (b->last > p) {
+            f->ph = p;
+            f->phl = NULL;
+        }
+    }
+
+    return NGX_OK;
+}
+
 void
 ngx_websocket_read_handler(ngx_http_request_t *r)
 {
-    int                n;
-    char               buf[128] = {0};
-    ngx_err_t          err;
-    ngx_event_t       *rev;
-    ngx_connection_t  *c;
+    ngx_err_t                  err;
+    ngx_event_t               *rev;
+    ngx_connection_t          *c;
+    int                        rc;
 
     c = r->connection;
     rev = c->read;
@@ -72,6 +278,7 @@ ngx_websocket_read_handler(ngx_http_request_t *r)
 
 #endif
 
+
 #if (NGX_HAVE_KQUEUE)
 
     if (ngx_event_flags & NGX_USE_KQUEUE_EVENT && rev->pending_eof) {
@@ -84,6 +291,7 @@ ngx_websocket_read_handler(ngx_http_request_t *r)
     }
 
 #endif
+
 
 
 #if (NGX_HAVE_EPOLLRDHUP)
@@ -110,38 +318,17 @@ ngx_websocket_read_handler(ngx_http_request_t *r)
             err = ngx_socket_errno;
         }
 
+        ngx_log_error(NGX_LOG_INFO, c->log, err,"222222222222222222222222");
         goto closed;
     }
 
 #endif
 
-    n = recv(c->fd, buf, sizeof(buf), 0);
-
-    if (n == 0) {
-        rev->eof = 1;
-        c->error = 1;
-        err = 0;
-
+    rc = ngx_websocket_recv(r, &err);
+    if (rc == NGX_ERROR) {
+        ngx_log_error(NGX_LOG_INFO, c->log, err,
+                  "websocket-recv: read_handler| recv return error");
         goto closed;
-
-    } else if (n == -1) {
-        err = ngx_socket_errno;
-
-        if (err != NGX_EAGAIN) {
-            rev->eof = 1;
-            c->error = 1;
-
-            goto closed;
-        }
-    }
-
-    /* aio does not call this handler */
-
-    if ((ngx_event_flags & NGX_USE_LEVEL_EVENT) && rev->active) {
-
-        if (ngx_del_event(rev, NGX_READ_EVENT, 0) != NGX_OK) {
-            ngx_http_close_request(r, 0);
-        }
     }
 
     return;
@@ -153,7 +340,7 @@ closed:
     }
 
     ngx_log_error(NGX_LOG_INFO, c->log, err,
-                  "client prematurely closed connection");
+        "websocket-recv: read_handler| client prematurely closed connection");
 
     ngx_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
 }

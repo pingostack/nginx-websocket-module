@@ -1,13 +1,10 @@
 /*
- * @Description: 
  * @Author: pingox
  * @Copyright: pngox
  * @Github: https://github.com/pingox
  * @EMail: cczjp89@gmail.com
- * @LastEditors: pingox
- * @Date: 2019-01-29 22:05:26
- * @LastEditTime: 2019-03-16 18:03:53
  */
+
 #ifndef _NGX_RTMP_HTTP_HEADER_OUT_H_INCLUDED_
 #define _NGX_RTMP_HTTP_HEADER_OUT_H_INCLUDED_
 

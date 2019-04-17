@@ -6,7 +6,7 @@ WEBSOCKET_SRCS="                                                               \
                    $ngx_addon_dir/ngx_websocket_module.c                       \
                    $ngx_addon_dir/ngx_http_set_header.c                        \
                    $ngx_addon_dir/ngx_websocket_recv.c                         \
-                   $ngx_addon_dir/ngx_websocket_send.c                         \
+                   $ngx_addon_dir/ngx_websocket.c                              \
 "
 
 WEBSOCKET_DEPS="                                                               \
