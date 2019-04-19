@@ -221,7 +221,7 @@ ngx_websocket_recv(ngx_http_request_t *r, ngx_err_t *err)
             msg.data = b->pos;
             msg.len = p - b->pos;
             if (f->opcode ==  NGX_WEBSOCKET_OPCODE_CLOSE) {
-                ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
                     "websocket: recv| get close message.");
                 return NGX_ERROR;
             } else if (f->opcode ==  NGX_WEBSOCKET_OPCODE_PING) {
@@ -318,7 +318,6 @@ ngx_websocket_read_handler(ngx_http_request_t *r)
             err = ngx_socket_errno;
         }
 
-        ngx_log_error(NGX_LOG_INFO, c->log, err,"222222222222222222222222");
         goto closed;
     }
 
@@ -326,7 +325,7 @@ ngx_websocket_read_handler(ngx_http_request_t *r)
 
     rc = ngx_websocket_recv(r, &err);
     if (rc == NGX_ERROR) {
-        ngx_log_error(NGX_LOG_INFO, c->log, err,
+        ngx_log_error(NGX_LOG_DEBUG, c->log, err,
                   "websocket-recv: read_handler| recv return error");
         goto closed;
     }
@@ -339,7 +338,7 @@ closed:
         rev->error = 1;
     }
 
-    ngx_log_error(NGX_LOG_INFO, c->log, err,
+    ngx_log_error(NGX_LOG_DEBUG, c->log, err,
         "websocket-recv: read_handler| client prematurely closed connection");
 
     ngx_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
