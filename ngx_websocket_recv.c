@@ -7,8 +7,8 @@
 
 #include "ngx_websocket.h"
 
-static void
-ngx_http_close_request(ngx_http_request_t *r, ngx_int_t rc)
+void
+ngx_websocket_close_request(ngx_http_request_t *r, ngx_int_t rc)
 {
     ngx_connection_t  *c;
 
@@ -85,7 +85,7 @@ ngx_websocket_recv(ngx_http_request_t *r, ngx_err_t *err)
             b->pos = b->start;
             b->last = ngx_movemem(b->pos, old_pos, old_size);
         } else {
-#if 0
+#if 1
             n = recv(c->fd, b->last, b->end - b->last, 0);
             if (n == 0) {
                 rev->eof = 1;
@@ -111,7 +111,8 @@ ngx_websocket_recv(ngx_http_request_t *r, ngx_err_t *err)
             if ((ngx_event_flags & NGX_USE_LEVEL_EVENT) && rev->active) {
 
                 if (ngx_del_event(rev, NGX_READ_EVENT, 0) != NGX_OK) {
-                    ngx_http_close_request(r, 0);
+                    ngx_websocket_close_request(r, 0);
+                    return NGX_OK;
                 }
             }
 #else
@@ -123,8 +124,8 @@ ngx_websocket_recv(ngx_http_request_t *r, ngx_err_t *err)
 
             if (n == NGX_AGAIN) {
                 if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
-                    ngx_http_close_request(r, 0);
-                    return NGX_ERROR;
+                    ngx_websocket_close_request(r, 0);
+                    return NGX_OK;
                 }
                 return NGX_AGAIN;
             }
@@ -196,7 +197,7 @@ ngx_websocket_recv(ngx_http_request_t *r, ngx_err_t *err)
         if (b->last == b->end && (uint64_t) (b->last - p) < f->len) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                 "websocket: recv| message is too large.");
-            return NGX_ERROR;
+            return NGX_HTTP_UNKNOWN;
         }
 
         if ((uint64_t)(b->last - p) < f->len) {
@@ -223,10 +224,11 @@ ngx_websocket_recv(ngx_http_request_t *r, ngx_err_t *err)
             if (f->opcode ==  NGX_WEBSOCKET_OPCODE_CLOSE) {
                 ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
                     "websocket: recv| get close message.");
-                return NGX_ERROR;
+                return NGX_HTTP_UNKNOWN;
             } else if (f->opcode ==  NGX_WEBSOCKET_OPCODE_PING) {
                 ngx_websocket_send_message(ws, NULL, NGX_WEBSOCKET_OPCODE_PONG);
             } else if (ws->recv_handler) {
+                ws->last_recv = ngx_time();
                 ws->recv_handler(ws, &msg, f->opcode);
             }
 
@@ -328,6 +330,8 @@ ngx_websocket_read_handler(ngx_http_request_t *r)
         ngx_log_error(NGX_LOG_DEBUG, c->log, err,
                   "websocket-recv: read_handler| recv return error");
         goto closed;
+    } else if (rc == NGX_HTTP_UNKNOWN) {
+        ngx_websocket_close_request(r, 0);
     }
 
     return;

@@ -50,31 +50,10 @@ static ngx_http_module_t  ngx_websocket_module_ctx = {
 static ngx_command_t  ngx_websocket_commands[] = {
 
     { ngx_string("websocket"),
-      NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
+      NGX_HTTP_LOC_CONF|NGX_CONF_ANY,
       ngx_websocket_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
-      NULL },
-
-    { ngx_string("websocket_out_queue"),
-      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_num_slot,
-      NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_websocket_loc_conf_t, out_queue),
-      NULL },
-
-    { ngx_string("websocket_message_length"),
-      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_num_slot,
-      NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_websocket_loc_conf_t, max_length),
-      NULL },
-
-    { ngx_string("websocket_ping_interval"),
-      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_msec_slot,
-      NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_websocket_loc_conf_t, ping_interval),
       NULL },
 
     ngx_null_command
@@ -107,6 +86,7 @@ ngx_websocket_create_loc_conf(ngx_conf_t *cf)
     wlcf->out_queue = NGX_CONF_UNSET;
     wlcf->max_length = NGX_CONF_UNSET;
     wlcf->ping_interval = NGX_CONF_UNSET_MSEC;
+    wlcf->timeout = NGX_CONF_UNSET_MSEC;
     wlcf->pool = ngx_create_pool(1024, cf->log);
 
     return wlcf;
@@ -121,6 +101,8 @@ ngx_websocket_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_uint_value(conf->out_queue, prev->out_queue, 512);
     ngx_conf_merge_uint_value(conf->max_length, prev->max_length, 4096000);
     ngx_conf_merge_msec_value(conf->ping_interval, prev->ping_interval, 5000);
+    ngx_conf_merge_msec_value(conf->timeout, prev->timeout,
+                              conf->ping_interval * 3);
 
     return NGX_CONF_OK;
 }
@@ -128,10 +110,49 @@ ngx_websocket_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 static char *
 ngx_websocket_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    ngx_http_core_loc_conf_t           *clcf;
+    ngx_http_core_loc_conf_t   *clcf;
+    ngx_uint_t                  i;
+    ngx_str_t                  *args, v;
+    ngx_websocket_loc_conf_t   *wlcf;
 
     clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
     clcf->handler = ngx_websocket_handler;
+
+    wlcf = ngx_http_conf_get_module_loc_conf(cf, ngx_websocket_module);
+    if (wlcf == NULL) {
+        return "websocket module loc conf is null";
+    }
+
+    args = cf->args->elts;
+    for (i = 1; i < cf->args->nelts; ++i) {
+        if (ngx_strncmp(args[i].data, "out_queue=", 10) == 0) {
+            v.data = args[i].data + 10;
+            v.len = args[i].len - 10;
+            wlcf->out_queue = ngx_atoi(v.data, v.len);
+
+        } else if (ngx_strncmp(args[i].data, "message_length=", 15) == 0) {
+            v.data = args[i].data + 15;
+            v.len = args[i].len - 15;
+            wlcf->max_length = ngx_atoi(v.data, v.len);
+
+        } else if (ngx_strncmp(args[i].data, "ping_interval=", 14) == 0) {
+            v.data = args[i].data + 14;
+            v.len = args[i].len - 14;
+            wlcf->ping_interval = ngx_parse_time(&v, 0);
+            if (wlcf->ping_interval == (ngx_msec_t) NGX_ERROR) {
+                return "invalid value";
+            }
+        } else if (ngx_strncmp(args[i].data, "timeout=", 8) == 0) {
+            v.data = args[i].data + 8;
+            v.len = args[i].len - 8;
+            wlcf->timeout = ngx_parse_time(&v, 0);
+            if (wlcf->timeout == (ngx_msec_t) NGX_ERROR) {
+                return "invalid value";
+            }
+        } else {
+            return "invalid option";
+        }
+    }
 
     return NGX_CONF_OK;
 }
@@ -142,6 +163,10 @@ ngx_websocket_ping(ngx_event_t *ev)
     ngx_websocket_session_t   *ws;
 
     ws = ev->data;
+    if ((1000 * (ngx_time() - ws->last_recv)) >= ws->timeout) {
+        ngx_websocket_close_request(ws->r, 0);
+        return;
+    }
 
     ngx_websocket_send_message(ws, NULL, NGX_WEBSOCKET_OPCODE_PING);
 
@@ -194,6 +219,8 @@ ngx_websocket_init_session(ngx_http_request_t *r)
     ngx_http_set_ctx(r, ctx, ngx_websocket_module);
     ws->out_queue = wlcf->out_queue;
     ws->ping_interval = wlcf->ping_interval;
+    ws->timeout = wlcf->timeout;
+    ws->last_recv = ngx_time();
 
     ws->ping_evt.handler = ngx_websocket_ping;
     ws->ping_evt.log = ws->log;

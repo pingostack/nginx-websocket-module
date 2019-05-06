@@ -4,7 +4,7 @@
 
 ### Project blog
 
-[http://www.ping8.online/](http://www.ping8.online/)
+[http://pingos.me/](http://pingos.me/)
 
 * wss client
 ![client-wss](./README/client-wss.jpg)
@@ -14,29 +14,29 @@
 
 ## Code sample
 
-**If you want to know how to develop a websocket server, refer to the code in the ['nginx-websocket-module/t/ngx_websocket_echo_module.c'](https://github.com/pingox/nginx-websocket-module/blob/dev/t/ngx_websocket_echo_module.c) .**
+**If you want to know how to develop a websocket server, refer to the code in the ['nginx-websocket-module/t/ngx_websocket_echo_module.c'](https://github.com/im-pingo/nginx-websocket-module/blob/dev/t/ngx_websocket_echo_module.c) .**
 
 ## Build
 
 ```shell
-
+$
 $ git clone https://github.com/nginx/nginx.git
-
-$ git clone https://github.com/pingox/nginx-websocket-module.git
-
+$
+$ git clone https://github.com/im-pingo/nginx-websocket-module.git
+$
 $ cd nginx
-
+$
 $ ./auto/configure --add-module=../nginx-websocket-module --add-module=../nginx-websocket-module/t
-
-$ sudo make && make install
-
+$
+$ sudo make && sudo make install
+$
 ```
 
 ## Config file
 
 ### websocket
 
-* *syntax* : websocket [no args]
+* *syntax* : websocket [any]
 
 * *context*: location
 
@@ -44,48 +44,39 @@ $ sudo make && make install
 
 ```nginx
 
-websocket;
+websocket out_queue=[num] message_length=[num] ping_interval=[time] timeout=[time];
 
 ```
 
-### websocket_out_queue
+#### options
 
-* *syntax*: websocket_out_queue [num] (default 512)
-* *context*: location
+##### out_queue
+
+* *syntax*: out_queue=[num] (default 512)
+* *context*: websocket's arg
 
 **Number of out queue**
 
-```nginx
+##### message_length
 
-websocket_out_queue 512;
-
-```
-
-### websocket_message_length
-
-* *syntax*: websocket_message_length [num] (default 4096000 bytes)
-* *context*: location
+* *syntax*: message_length=[num] (default 4096000 bytes)
+* *context*: websocket's arg
 
 **Max length of websocket message**
 
-```nginx
+##### ping_interval
 
-websocket_message_length 4096000;
-
-```
-
-### websocket_ping_interval
-
-* *syntax*: websocket_ping_interval [msec] (default 5000ms)
-* *context*: location
+* *syntax*: ping_interval=[msec] (default 5000ms)
+* *context*: websocket's arg
 
 **Time interval between pings**
 
-```nginx
+##### timeout
 
-websocket_ping_interval 5000ms;
+* *syntax*: timeout=[msec] (default 15000ms)
+* *context*: websocket's arg
 
-```
+**receive timeout**
 
 ### websocket_echo
 
@@ -128,16 +119,13 @@ http {
 
         # use wss(ssl)
         listen       443 ssl;
-        ssl_certificate /usr/local/nginx/key/pingox.crt;
-        ssl_certificate_key /usr/local/nginx/key/pingox.key;
+        ssl_certificate /usr/local/nginx/key/im-pingo.crt;
+        ssl_certificate_key /usr/local/nginx/key/im-pingo.key;
 
         server_name  localhost;
 
-        location /pingox {
-            websocket;
-            websocket_out_queue 512;
-            websocket_message_length 4096000;
-            websocket_ping_interval 5000ms;
+        location /im-pingo {
+            websocket out_queue=512 message_length=4096000 ping_interval=5000ms timeout=15s;
             websocket_echo;
         }
     }

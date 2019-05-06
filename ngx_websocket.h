@@ -70,6 +70,8 @@ struct ngx_websocket_session_s {
     ngx_websocket_frame_t                  in_frame;
     ngx_event_t                            ping_evt;
     ngx_msec_t                             ping_interval;
+    ngx_msec_t                             timeout;
+    ngx_msec_t                             last_recv;
     ngx_chain_t                          **out;
     ngx_uint_t                             out_last;
     ngx_uint_t                             out_pos;
@@ -89,6 +91,7 @@ struct ngx_websocket_loc_conf_s {
     ngx_chain_t                        *in_free;
     ngx_pool_t                         *pool;
     ngx_msec_t                          ping_interval;
+    ngx_msec_t                          timeout;
 };
 
 void ngx_websocket_read_handler(ngx_http_request_t *r);
@@ -96,6 +99,8 @@ void *ngx_websocket_rmemcpy(void *dst, const void* src, size_t n);
 
 ngx_int_t ngx_websocket_send_message(
         ngx_websocket_session_t *ws, ngx_str_t *str, ngx_int_t opcode);
+void
+ngx_websocket_close_request(ngx_http_request_t *r, ngx_int_t rc);
 
 #include "ngx_http_set_header.h"
 
