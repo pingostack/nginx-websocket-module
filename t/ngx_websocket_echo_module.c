@@ -5,7 +5,7 @@
  * @EMail: cczjp89@gmail.com
  */
 
-#include "../ngx_websocket.h"
+#include "ngx_websocket.h"
 
 static char *
 ngx_websocket_echo_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);

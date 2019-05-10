@@ -85,6 +85,7 @@ struct ngx_websocket_ctx_s {
 };
 
 struct ngx_websocket_loc_conf_s {
+    ngx_str_t                           name;
     ngx_websocket_connect_handler_pt    connect_handler;
     ngx_uint_t                          out_queue;
     ngx_uint_t                          max_length;
@@ -100,7 +101,7 @@ void *ngx_websocket_rmemcpy(void *dst, const void* src, size_t n);
 ngx_int_t ngx_websocket_send_message(
         ngx_websocket_session_t *ws, ngx_str_t *str, ngx_int_t opcode);
 void
-ngx_websocket_close_request(ngx_http_request_t *r, ngx_int_t rc);
+ngx_websocket_finalize_session(ngx_websocket_session_t *s);
 
 #include "ngx_http_set_header.h"
 

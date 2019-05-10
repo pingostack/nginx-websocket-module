@@ -7,7 +7,7 @@
 
 #include "ngx_websocket.h"
 
-void
+static void
 ngx_websocket_close_request(ngx_http_request_t *r, ngx_int_t rc)
 {
     ngx_connection_t  *c;
@@ -39,6 +39,15 @@ ngx_websocket_close_request(ngx_http_request_t *r, ngx_int_t rc)
     ngx_http_close_connection(c);
 }
 
+void
+ngx_websocket_finalize_session(ngx_websocket_session_t *ws)
+{
+    if (!ws || !ws->r) {
+        return;
+    }
+
+    ngx_websocket_close_request(ws->r, NGX_HTTP_OK);
+}
 
 static ngx_int_t
 ngx_websocket_recv(ngx_http_request_t *r, ngx_err_t *err)

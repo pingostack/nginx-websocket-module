@@ -123,6 +123,8 @@ ngx_websocket_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return "websocket module loc conf is null";
     }
 
+    wlcf->name = clcf->name;
+
     args = cf->args->elts;
     for (i = 1; i < cf->args->nelts; ++i) {
         if (ngx_strncmp(args[i].data, "out_queue=", 10) == 0) {
@@ -164,7 +166,7 @@ ngx_websocket_ping(ngx_event_t *ev)
 
     ws = ev->data;
     if ((1000 * (ngx_time() - ws->last_recv)) >= ws->timeout) {
-        ngx_websocket_close_request(ws->r, 0);
+        ngx_websocket_finalize_session(ws);
         return;
     }
 

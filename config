@@ -5,7 +5,7 @@ WEBSOCKET_MODULES="                                                            \
 WEBSOCKET_SRCS="                                                               \
                    $ngx_addon_dir/ngx_websocket_module.c                       \
                    $ngx_addon_dir/ngx_http_set_header.c                        \
-                   $ngx_addon_dir/ngx_websocket_recv.c                         \
+                   $ngx_addon_dir/ngx_websocket_handler.c                         \
                    $ngx_addon_dir/ngx_websocket.c                              \
 "
 
@@ -24,3 +24,4 @@ WEBSOCKET_LIBS=""
 NGX_ADDON_DEPS="$NGX_ADDON_DEPS $WEBSOCKET_DEPS"
 
 CORE_LIBS="$CORE_LIBS $WEBSOCKET_LIBS"
+CFLAGS="$CFLAGS -I $ngx_addon_dir"
