@@ -14,7 +14,7 @@
 
 ## Code sample
 
-**If you want to know how to develop a websocket server, refer to the code in the ['nginx-websocket-module/t/ngx_websocket_echo_module.c'](https://github.com/im-pingo/nginx-websocket-module/blob/dev/t/ngx_websocket_echo_module.c) .**
+**If you want to know how to develop a websocket server, refer to the code in the ['t/ngx_websocket_echo_module.c'](t/ngx_websocket_echo_module.c) .**
 
 ## Build
 
