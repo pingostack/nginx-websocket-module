@@ -180,7 +180,6 @@ ngx_websocket_init_session(ngx_http_request_t *r)
 {
     ngx_websocket_session_t    *ws;
     ngx_websocket_ctx_t        *ctx;
-    ngx_pool_t                 *pool;
     ngx_websocket_loc_conf_t   *wlcf;
 
     wlcf = ngx_http_get_module_loc_conf(r, ngx_websocket_module);
@@ -211,7 +210,6 @@ ngx_websocket_init_session(ngx_http_request_t *r)
     ws->r = r;
     ctx->ws = ws;
 
-    pool = r->connection->pool;
     ws->pool = ngx_create_pool(4096, r->connection->log);
     ws->log = r->connection->log;
 
@@ -327,7 +325,7 @@ ngx_websocket_prepare_chain(ngx_websocket_session_t *ws,
         out->next = NULL;
     }
 
-    b->last_in_chain = true;
+    b->last_in_chain = 1;
     b->flush = 1;
 
     p = b->last;
@@ -444,13 +442,11 @@ ngx_websocket_send_message(ngx_websocket_session_t *ws,
                             ngx_str_t *str, ngx_int_t opcode)
 {
     ngx_uint_t             nmsg;
-    ngx_connection_t      *c;
     ngx_http_request_t    *r;
     ngx_websocket_ctx_t   *ctx;
     ngx_chain_t           *out;
 
     r = ws->r;
-    c = r->connection;
 
     ctx = ngx_http_get_module_ctx(r, ngx_websocket_module);
     if (ctx == NULL) {

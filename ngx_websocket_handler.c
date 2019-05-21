@@ -219,7 +219,7 @@ ngx_websocket_recv(ngx_http_request_t *r, ngx_err_t *err)
         }
 
         if (f->append) {
-            ngx_movemem(f->ph, f->phl, f->len);
+            ngx_memmove(f->ph, f->phl, f->len);
             f->mlen += f->len;
             b->last -= f->phl - f->ph;
             p -= f->phl - f->ph;
