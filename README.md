@@ -4,7 +4,7 @@
 
 ### Project blog
 
-[http://pingos.io/](http://pingos.me/)
+[http://pingos.io/](http://pingos.io/)
 
 * wss client
 ![client-wss](./README/client-wss.jpg)
