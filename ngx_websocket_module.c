@@ -1,7 +1,7 @@
 /*
- * @Author: pingox
+ * @Author: im-pingo
  * @Copyright: pngox
- * @Github: https://github.com/pingox
+ * @Github: https://github.com/im-pingo
  * @EMail: cczjp89@gmail.com
  */
 
@@ -19,7 +19,7 @@ static ngx_keyval_t ngx_websocket_headers[] = {
     { ngx_string("Sec-WebSocket-Accept"),     ngx_null_string },
     { ngx_string("Sec-WebSocket-Protocol:"),  ngx_null_string },
     { ngx_string("Sec-WebSocket-Extensions"), ngx_null_string },
-    { ngx_string("WebSocket-Server"),   ngx_string("pingox-websocket") },
+    { ngx_string("WebSocket-Server"),   ngx_string("im-pingo-websocket") },
     { ngx_null_string, ngx_null_string }
 };
 

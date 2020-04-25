@@ -1,7 +1,7 @@
 /*
- * @Author: pingox
+ * @Author: im-pingo
  * @Copyright: pngox
- * @Github: https://github.com/pingox
+ * @Github: https://github.com/im-pingo
  * @EMail: cczjp89@gmail.com
  */
 
