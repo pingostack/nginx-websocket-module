@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+
+<meta charset="utf-8" />
+
+<title>WebSocket Test</title>
+
+<script language="javascript" type="text/javascript">
+
+  var wsUrl = "ws://" + window.location.host + "/";
+  var output;
+  var websocket;
+
+  // This 'fixture' knows how to connect to our server (the same server that is
+  // serving out this static content), how to send messages to that server
+  // and how to asynchronously return results to the test script
+  class ServerConnectionTestSteps {
+    #connected = false;
+    #invokeNext = null;
+    #success = true;
+    #name = "Server Connection Test"
+    #uri = "";
+    #waiting = false;
+    #received = [];
+    #ws = null;
+    #expectedDisconnect = 1000;
+
+    // Constructor takes a list of test steps: functions that should be executed
+    // in order before closing the websocket connection
+    constructor(name, uri, calls ) {
+      this.#uri = uri;
+      this.#name = name;
+
+      // wrap test calls in setup/teardown logic
+      this.calls = [ function(inst) { inst.connect(); return true; } ];
+      this.calls = this.calls.concat( calls );
+      this.calls = this.calls.concat( [
+        function(inst) { inst.teardown(); return true; },
+        function(inst) { inst.postValidate(); return true; }
+      ] );
+    }
+
+    setup() {
+        this.connect();
+    }
+
+    teardown() {
+        this.#ws.close(1000);
+    }
+
+    postValidate() {
+      this.doAssert( "Pending calls, or messages",
+        self.calls.length == 1 && !self.#received.length? null: (
+          ( self.calls.length != 1? ("Not all calls completed - " + self.calls.length + " pending. "): "" ) +
+          ( self.#received.length? (self.#received.length.toString() + " unused response(s)"): "" )
+        )
+      );
+    }
+
+    expectDisconnect( code ) {
+      this.#expectedDisconnect = code;
+    }
+
+    // Initiate connection to the server. After connection has been established
+    // the code will execute each of the test steps passed in the 'calls'
+    connect() {
+      self = this;
+      this.#ws = new WebSocket(wsUrl + this.#uri);
+      this.#ws.onopen = function(evt) {
+        self.#connected = true;
+        self.#doNext()
+      };
+      this.#ws.onclose = function(evt) {
+        self.#connected = false;
+
+        self.doAssert( "Connection closed with response code " + evt.code + (evt.wasClean? " (clean)": " (bad)"),
+          evt.wasClean || evt.code === self.#expectedDisconnect? null: "unexpected shutdown" )
+        self.#doNext();
+      };
+      this.#ws.onmessage = function(evt) {
+        self.#received.push(evt.data);
+        self.#doNext();
+      };
+      this.#ws.onerror = function(evt) {
+        this.doAssert("Error received", "'" + evt.data + "'");
+      };
+      this.#expectedDisconnect = 1000;
+    }
+
+    execute() {
+      writeToScreen('<span style="color: blue; weigth: bold;">' + this.#name + '</span>');
+      this.#doNext();
+
+      return this;
+    }
+
+    andThen(invokeNext) {
+      this.#invokeNext = invokeNext;
+    }
+
+    // try to execute the next step in the test
+    #doNext() {
+      if (!this.calls.length) {
+        this.doAssert( this.#name + ": test completed", this.#success? null: "One or more errors reported above" )
+        if (this.#invokeNext)
+          this.#invokeNext();
+
+        return;
+      }
+
+      while(this.calls.length) {
+        if (!this.calls[0](this))
+          break;
+        this.calls.shift();
+      }
+    }
+
+    send(what) {
+      if( !this.#connected || this.#waiting)
+        return false;
+
+      this.#ws.send(what);
+      self = this;
+
+      // yield to event loop after sending - and prevent another immediate send
+      // by setting '#waiting' flag
+      this.#waiting = true;
+      setTimeout( function() { self.#waiting = false; self.#doNext(); }, 1 );
+
+      return true;
+    }
+
+    doAssert(doc, failMsgOrNull)
+    {
+      if (!failMsgOrNull)
+        writeToScreen('<span style="color: green;">' + doc + ' - Success</span>');
+      else
+        writeToScreen('<span style="color: red;">' + doc + ' - Failure. ' + failMsgOrNull + '"</span>');
+    }
+
+    assertReceived(doc, predicate) {
+      if (!this.#connected || !this.#received.length)
+        return false;
+
+      predicate(this.#received.shift());
+
+      return true;
+    }
+  }
+
+  function setupSuite()
+  {
+    output = document.getElementById("output");
+
+    // A couple of simple tests - simple request/responses
+    simpleTests = new ServerConnectionTestSteps( "Simple tests", "echo", [].concat(
+      echoTest( "Simple request/response", "Short test message" ),
+      echoTest( "Multiple request/responses", "Test message with idx", 16 ),
+    ) );
+
+    // Test a large payload just less than the maximum to confirm that it gets split into
+    // smaller frames
+    veryLargePayloadTest = new ServerConnectionTestSteps( "Very large payload test", "echo", [].concat(
+      // TODO fix test with repeat set to 63000
+      echoTest( "Large payload request/response", "0123456789ABCDEF".repeat(630/*00*/) ), // almost as big as the 1024,000 buffer size
+    ) );
+
+    // Test payload size limit:
+    // - first test fills the 4Kb buffer of the 'echo_small_buffer' URI
+    // - second test exceeds the buffer size and we are expecting an error
+    payloadSizeLimitTests = new ServerConnectionTestSteps( "Payload size limit tests", "echo_small_buffer", [].concat(
+      // TODO fix test with repeat set to 255
+      echoTest( "Payload just short of max size request/response", "0123456789ABCDEF".repeat(128) + "0123456789A", 8 ), // just less than 4Kb - the configured buffer size
+
+      // TODO fix test with disconnect error set to 1009
+      [ function(inst) { inst.expectDisconnect( 1009 ); return inst.send( "0123456789ABCDEF".repeat(257)); } ],  // just over 4Kb - expect disconnect with 'too large' error
+    ) );
+
+    // Run tests in sequence
+    simpleTests.execute().andThen( function() {
+      veryLargePayloadTest.execute().andThen( function() {
+        payloadSizeLimitTests.execute();
+      } );
+    } );
+  }
+
+  function echoTest(doc, msg, count=1 ) {
+    sends = [];
+    asserts = [];
+    for(i=0; i<count; ++i) {
+      const idx = count <= 1? "": (" " + (i+1).toString() );
+      const msgWithIdx = msg + idx;
+      sends.push( function(inst) { return inst.send(msgWithIdx); } );
+      asserts.push( function(inst) { return inst.assertReceived(doc, function(received) {
+        inst.doAssert(doc + idx + ' echo received', msgWithIdx === received? null: 'expected: "' + msgWithIdx + '" != "' + received + '"');
+      } ) } );
+    }
+    return sends.concat(asserts);
+  }
+
+  function writeToScreen(message)
+  {
+    var pre = document.createElement("p");
+    pre.style.wordWrap = "break-word";
+    pre.innerHTML = message;
+    output.appendChild(pre);
+  }
+
+  window.addEventListener("load", setupSuite, false);
+
+</script>
+
+<h2>WebSocket Test</h2>
+
+<div id="output"></div>
+
+</html>
