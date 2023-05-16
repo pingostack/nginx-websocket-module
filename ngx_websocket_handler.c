@@ -8,6 +8,26 @@
 #include "ngx_websocket.h"
 
 static void
+ngx_websocket_send_close_frame(ngx_websocket_session_t *ws, ngx_uint_t close_status, ngx_str_t *close_reason)
+{
+    // If close_status is set, then we are already in a CLOSING state
+    if (ws->close_status) {
+        return;
+    }
+    ws->close_status = close_status;
+    ngx_str_t frame_data;
+    frame_data.len = 2 + (close_reason? close_reason->len: 0);
+    frame_data.data = ngx_pcalloc(ws->r->pool, frame_data.len);
+    frame_data.data[0] = (close_status >> 8) & 0xff;
+    frame_data.data[1] = close_status & 0xff;
+    if (close_reason) {
+        ngx_memcpy(frame_data.data + 2, close_reason->data, close_reason->len);
+    }
+    
+    ngx_websocket_send_message(ws, &frame_data, NGX_WEBSOCKET_OPCODE_CLOSE);
+}
+
+static void
 ngx_websocket_close_request(ngx_http_request_t *r, ngx_int_t rc)
 {
     ngx_connection_t  *c;
@@ -48,6 +68,12 @@ ngx_websocket_finalize_session(ngx_websocket_session_t *ws)
 
     ngx_websocket_close_request(ws->r, NGX_HTTP_OK);
 }
+
+// https://www.rfc-editor.org/rfc/rfc6455#section-7.4.1
+#define NGX_WS_CLOSE_STATUS_OK             1000
+#define NGX_WS_CLOSE_STATUS_PROTOCOL_ERROR 1002
+#define NGX_WS_CLOSE_STATUS_TOO_LARGE      1009
+
 
 static ngx_int_t
 ngx_websocket_recv(ngx_http_request_t *r, ngx_err_t *err)
@@ -206,7 +232,8 @@ ngx_websocket_recv(ngx_http_request_t *r, ngx_err_t *err)
         if (b->last == b->end && (uint64_t) (b->last - p) < f->len) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                 "websocket: recv| message is too large.");
-            return NGX_HTTP_UNKNOWN;
+            *err = NGX_WS_CLOSE_STATUS_TOO_LARGE;
+            return NGX_HTTP_REQUEST_ENTITY_TOO_LARGE;
         }
 
         if ((uint64_t)(b->last - p) < f->len) {
@@ -233,9 +260,10 @@ ngx_websocket_recv(ngx_http_request_t *r, ngx_err_t *err)
             if (f->opcode ==  NGX_WEBSOCKET_OPCODE_CLOSE) {
                 ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
                     "websocket: recv| get close message.");
-                return NGX_HTTP_UNKNOWN;
+                *err = msg.len >= 2? (msg.data[ 0 ] << 8) + msg.data[ 1 ]: NGX_WS_CLOSE_STATUS_PROTOCOL_ERROR;
+                return NGX_HTTP_CLOSE;
             } else if (f->opcode ==  NGX_WEBSOCKET_OPCODE_PING) {
-                ngx_websocket_send_message(ws, NULL, NGX_WEBSOCKET_OPCODE_PONG);
+                ngx_websocket_send_message(ws, &msg, NGX_WEBSOCKET_OPCODE_PONG);
             } else if (ws->recv_handler) {
                 ws->last_recv = ngx_time();
                 ws->recv_handler(ws, &msg, f->opcode);
@@ -271,6 +299,7 @@ ngx_websocket_read_handler(ngx_http_request_t *r)
     ngx_err_t                  err;
     ngx_event_t               *rev;
     ngx_connection_t          *c;
+    ngx_websocket_ctx_t       *ctx;
     int                        rc;
 
     c = r->connection;
@@ -339,8 +368,14 @@ ngx_websocket_read_handler(ngx_http_request_t *r)
         ngx_log_error(NGX_LOG_DEBUG, c->log, err,
                   "websocket-recv: read_handler| recv return error");
         goto closed;
-    } else if (rc == NGX_HTTP_UNKNOWN) {
-        ngx_websocket_close_request(r, 0);
+    } else if (rc == NGX_HTTP_CLOSE || rc == NGX_HTTP_REQUEST_ENTITY_TOO_LARGE) {
+        // Echo the close frame back to the caller if the close operation originated there
+        if ((ctx = ngx_http_get_module_ctx(r, ngx_websocket_module)) != 0 &&
+                ctx->ws  && !ctx->ws->close_status)
+            ngx_websocket_send_close_frame(ctx->ws, err, 0);
+
+        if (rc == NGX_HTTP_CLOSE)
+            ngx_websocket_close_request(r, NGX_HTTP_OK);
     }
 
     return;

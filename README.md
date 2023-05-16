@@ -44,7 +44,7 @@ $
 
 ```nginx
 
-websocket out_queue=[num] message_length=[num] ping_interval=[time] timeout=[time];
+websocket out_queue=[num] message_length=[num] frame_length=[num] ping_interval=[time] timeout=[time];
 
 ```
 
