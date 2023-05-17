@@ -15,8 +15,9 @@ Since there are many ways that the websocket modules could be compiled, this is 
 * Copy test files into working directory
 > cp ${PATH_TO_NGINX_WEBSOCKET_GIT_REPO}/nginx-test/* .
 * Symlink websocket modules into working directory (you could also copy, but symlinks mean you pick up changes following fixes)
-> ln -s ${PATH_TO_BUILD_OUTPUT}/ngx_websocket_echo_module.so .<br>
-> ln -s ${PATH_TO_BUILD_OUTPUT}/ngx_websocket_module.so .
+> ln -s ${PATH_TO_MODULES}/ngx_websocket_echo_module.so .<br>
+> ln -s ${PATH_TO_MODULES}/ngx_websocket_module.so .
+> ln -s ${PATH_TO_NGINX_CONF}/mime.types .
 * Run Nginx
 > ${PATH_TO_NGINX}/nginx -p $(pwd) -c websocket_test.conf
 * If the execution fails because of missing shared object dependencies (e.g. zlib, pcre, openssl), add paths to these dependencies to LD_LIBRARY_PATH and rerun.

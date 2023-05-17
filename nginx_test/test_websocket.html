@@ -171,7 +171,6 @@
       // TODO fix test with repeat set to 255
       echoTest( "Payload just short of max size request/response", "0123456789ABCDEF".repeat(128) + "0123456789A", 8 ), // just less than 4Kb - the configured buffer size
 
-      // TODO fix test with disconnect error set to 1009
       [ function(inst) { inst.expectDisconnect( 1009 ); return inst.send( "0123456789ABCDEF".repeat(257)); } ],  // just over 4Kb - expect disconnect with 'too large' error
     ) );
 
