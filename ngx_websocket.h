@@ -8,6 +8,7 @@
 #ifndef __NGX_WEBSOCKET_H_INCLUDE__
 #define __NGX_WEBSOCKET_H_INCLUDE__
 
+#include <ngx_config.h>
 #include <openssl/crypto.h>
 #include <openssl/sha.h>
 #include <ngx_config.h>
@@ -72,6 +73,7 @@ struct ngx_websocket_session_s {
     ngx_msec_t                             ping_interval;
     ngx_msec_t                             timeout;
     ngx_msec_t                             last_recv;
+    ngx_uint_t                             close_status;
     ngx_chain_t                          **out;
     ngx_uint_t                             out_last;
     ngx_uint_t                             out_pos;
@@ -89,6 +91,7 @@ struct ngx_websocket_loc_conf_s {
     ngx_websocket_connect_handler_pt    connect_handler;
     ngx_uint_t                          out_queue;
     ngx_uint_t                          max_length;
+    ngx_uint_t                          max_frame_length;
     ngx_chain_t                        *in_free;
     ngx_pool_t                         *pool;
     ngx_msec_t                          ping_interval;

@@ -85,6 +85,7 @@ ngx_websocket_create_loc_conf(ngx_conf_t *cf)
     }
     wlcf->out_queue = NGX_CONF_UNSET;
     wlcf->max_length = NGX_CONF_UNSET;
+    wlcf->max_frame_length = NGX_CONF_UNSET;
     wlcf->ping_interval = NGX_CONF_UNSET_MSEC;
     wlcf->timeout = NGX_CONF_UNSET_MSEC;
     wlcf->pool = ngx_create_pool(1024, cf->log);
@@ -100,6 +101,7 @@ ngx_websocket_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_uint_value(conf->out_queue, prev->out_queue, 512);
     ngx_conf_merge_uint_value(conf->max_length, prev->max_length, 4096000);
+    ngx_conf_merge_uint_value(conf->max_frame_length, prev->max_frame_length, 65535);
     ngx_conf_merge_msec_value(conf->ping_interval, prev->ping_interval, 5000);
     ngx_conf_merge_msec_value(conf->timeout, prev->timeout,
                               conf->ping_interval * 3);
@@ -136,6 +138,11 @@ ngx_websocket_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             v.data = args[i].data + 15;
             v.len = args[i].len - 15;
             wlcf->max_length = ngx_atoi(v.data, v.len);
+
+        } else if (ngx_strncmp(args[i].data, "frame_length=", 13) == 0) {
+            v.data = args[i].data + 13;
+            v.len = args[i].len - 13;
+            wlcf->max_frame_length = ngx_atoi(v.data, v.len);
 
         } else if (ngx_strncmp(args[i].data, "ping_interval=", 14) == 0) {
             v.data = args[i].data + 14;
@@ -225,6 +232,7 @@ ngx_websocket_init_session(ngx_http_request_t *r)
     ws->ping_evt.handler = ngx_websocket_ping;
     ws->ping_evt.log = ws->log;
     ws->ping_evt.data = ws;
+    ws->close_status = 0;
     ngx_add_timer(&ws->ping_evt, ws->ping_interval);
 
     return ws;
@@ -329,27 +337,38 @@ ngx_websocket_prepare_chain(ngx_websocket_session_t *ws,
     b->flush = 1;
 
     p = b->last;
-    *p++ = 0x80 | opcode;    // fin + opcode
 
     if (!msg) {
+        *p++ = 0x80 | opcode;    // fin + opcode
         *p++ = 0;
         b->last = p;
-    } else {
-        if (msg->len < 126) {
-            *p++ = msg->len;
-        } else if (msg->len >= 126 && msg->len <= 0xffff) {
-            *p++ = 126;
-            *p++ = (msg->len & 0xff00) >> 8;
-            *p++ = msg->len & 0x00ff;
-        } else if (msg->len > 0xffff) {
-            *p++ = 127;
-            *p++ = (msg->len & 0xff000000) >> 24;
-            *p++ = (msg->len & 0x00ff0000) >> 16;
-            *p++ = (msg->len & 0x0000ff00) >> 8;
-            *p++ = (msg->len & 0x000000ff);
-        }
 
-        b->last = ngx_cpymem(p, msg->data, msg->len);
+    } else {
+        size_t s, n;
+        u_char *d;
+
+        // Respect the frame size limit
+        for (s = msg->len, d = msg->data; (n = s > wlcf->max_frame_length? wlcf->max_frame_length: s) > 0; s -= n, p += n, d += n ) {
+   
+            *p++ = ((s - n) == 0? 0x80:0x00 ) | opcode;    // fin + opcode
+
+            if (n < 126) {
+                *p++ = n;
+            } else if (n >= 126 && n <= 0xffff) {
+                *p++ = 126;
+                *p++ = (n & 0xff00) >> 8;
+                *p++ = n & 0x00ff;
+            } else if (n > 0xffff) {
+                *p++ = 127;
+                *p++ = (n & 0xff000000) >> 24;
+                *p++ = (n & 0x00ff0000) >> 16;
+                *p++ = (n & 0x0000ff00) >> 8;
+                *p++ = (n & 0x000000ff);
+            }
+
+            b->last = ngx_cpymem(p, d, n);
+            opcode = 0;
+        }
     }
 
     return out;
